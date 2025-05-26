@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fe-react
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fe-react
+  template:
+    metadata:
+      labels:
+        app: fe-react
+    spec:
+      containers:
+        - name: fe-react
+          image: your-dockerhub-username/fe-react:latest
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fe-react
+spec:
+  selector:
+    app: fe-react
+  ports:
+    - port: 80
+      targetPort: 80

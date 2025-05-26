@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: be-springboot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: be-springboot
+  template:
+    metadata:
+      labels:
+        app: be-springboot
+    spec:
+      containers:
+        - name: be-springboot
+          image: your-dockerhub-username/be-springboot:latest
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:mysql://mysql:3306/mydb
+            - name: SPRING_DATASOURCE_USERNAME
+              value: user
+            - name: SPRING_DATASOURCE_PASSWORD
+              value: password
+          ports:
+            - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: be-springboot
+spec:
+  selector:
+    app: be-springboot
+  ports:
+    - port: 8080
+      targetPort: 8080

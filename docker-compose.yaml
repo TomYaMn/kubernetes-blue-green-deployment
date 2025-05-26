@@ -1,0 +1,113 @@
+services:
+  # MySQL Database Service
+  mysql_db:
+    image: mysql:8.0
+    container_name: mysql_db_container
+    # ports:
+    #   - "3306:3306" # Expose MySQL port to host (optional, for direct access)
+    environment:
+      MYSQL_ROOT_PASSWORD: password # Replace with a strong password
+      MYSQL_DATABASE: mydb
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: password   # Replace with a strong password
+    volumes:
+      - mysql_data:/var/lib/mysql # Persistent storage for MySQL data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u$MYSQL_USER -p$MYSQL_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: on-failure
+
+  # Spring Boot Backend Service
+  springboot-backend:
+    build:
+      context: ./be-springboot # Path to your Spring Boot app's Dockerfile directory
+      dockerfile: Dockerfile
+    container_name: springboot_backend_container
+    ports:
+      - "8080:8080" # Expose Spring Boot app port
+    depends_on:
+      mysql_db: # Wait for MySQL to be healthy before starting
+        condition: service_healthy
+    environment:
+      # Database connection details for Spring Boot
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql_db:3306/mydb?useSSL=false&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true
+      SPRING_DATASOURCE_USERNAME: admin
+      SPRING_DATASOURCE_PASSWORD: password # Must match MYSQL_PASSWORD above
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update # Or 'validate' for more control in prod-like setup
+      SPRING_PROFILES_ACTIVE: docker # Optional: for Docker-specific configurations
+      # SERVER_PORT: 8080 # Already the default, but can be set
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/items/health"] # Use the health endpoint from ItemController
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s # Give Spring Boot more time to start
+
+  # React Frontend Service
+  react-frontend:
+    build:
+      context: ./fe-react
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://springboot-backend:8080/api/items
+    container_name: react_frontend_container
+    ports:
+      - "3000:80" # Map host port 3000 to Nginx container port 80
+    depends_on:
+      springboot-backend: # Wait for backend to be healthy
+        condition: service_healthy
+    environment:
+      # This environment variable is used by Nginx or your React app at runtime.
+      # If your React Dockerfile bakes this in at build time, this runtime env might be for Nginx.
+      # The React app itself (App.js) uses process.env.REACT_APP_API_URL.
+      # For Nginx to pass this to the client, you'd typically need a more complex Nginx setup
+      # (e.g., substituting env vars into a config.js served to the client, or using an entrypoint script).
+      # For simplicity with create-react-app, REACT_APP_API_URL is often set at build time.
+      # If you want to use this runtime variable directly in the React app without Nginx substitution,
+      # your React app's Dockerfile/entrypoint would need to handle it.
+      # The provided React Dockerfile uses Nginx, which serves static files.
+      # The `REACT_APP_API_URL` in `App.js` will default to 'http://localhost:8080/api/items'
+      # if not set during the `npm run build` step.
+      # For Docker Compose, the React app will access the backend via http://springboot-backend:8080
+      # So, you should ensure REACT_APP_API_URL is set to this during the React build, or adjust Nginx.
+      #
+      # To make this work with the provided React Dockerfile (which builds static assets):
+      # You'd typically pass REACT_APP_API_URL as a build argument in the Dockerfile.
+      # For Docker Compose, you can specify build args:
+      # build:
+      #   context: ./react-frontend-app
+      #   dockerfile: Dockerfile
+      #   args:
+      #     REACT_APP_API_URL: http://springboot-backend:8080/api/items
+      #
+      # The App.js already has a fallback: process.env.REACT_APP_API_URL || 'http://localhost:8080/api/items'
+      # Let's assume for now the default in App.js is fine for direct backend access via Nginx proxy if set up,
+      # or that you'll handle the REACT_APP_API_URL during the `docker build` step for React.
+      # If your Nginx serves the React app, and React needs to call the backend, it will call
+      # the URL it was built with.
+      #
+      # The `nginx.conf` in the React app should be configured to proxy /api requests to `http://springboot-backend:8080`
+      # if you want the frontend to make calls to its own host and have Nginx route them.
+      # Alternatively, the React app calls `http://springboot-backend:8080/api/items` directly.
+      # The provided React `App.js` will use `process.env.REACT_APP_API_URL`.
+      # Let's provide the build arg for clarity:
+      REACT_APP_API_URL: http://springboot-backend:8080/api/items # This is for the React app build process
+      VITE_API_URL: http://springboot-backend:8080/api/items
+    networks:
+      - app-network
+
+# Volumes
+volumes:
+  mysql_data: # Named volume for MySQL data persistence
+
+# Networks
+networks:
+  app-network:
+    driver: bridge
